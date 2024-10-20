@@ -1,4 +1,4 @@
-package vuong20194412.chat.authentication_api_gateway_service;
+package vuong20194412.chat.authentication_api_gateway_service.security;
 
 import com.fasterxml.jackson.core.exc.StreamReadException;
 import com.fasterxml.jackson.databind.DatabindException;
@@ -18,6 +18,12 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import vuong20194412.chat.authentication_api_gateway_service.JwtHS256Utils;
+import vuong20194412.chat.authentication_api_gateway_service.model.Account;
+import vuong20194412.chat.authentication_api_gateway_service.model.AccountDTO;
+import vuong20194412.chat.authentication_api_gateway_service.model.JsonWebToken;
+import vuong20194412.chat.authentication_api_gateway_service.repository.AccountRepository;
+import vuong20194412.chat.authentication_api_gateway_service.repository.JsonWebTokenRepository;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -45,7 +51,7 @@ class JwtAuthorizationFilter extends OncePerRequestFilter {
         String token = extractToken(request);
         if (SecurityContextHolder.getContext().getAuthentication() == null && token != null) {
             if (!jwtHS256Utils.verifyJwt(token)) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Expired or invalid token");
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Expired or invalid token.");
                 return;
             }
 
@@ -56,23 +62,23 @@ class JwtAuthorizationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            if (!jwtRepository.existsByTokenAndExpirationTimeGreaterThanEqual(token, Long.parseLong(claims.get("exp")))) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Blacklisted or Expired or invalid token");
-                return;
-            }
-
             String email = claims.get("sub");
 
-            if (email == null || email.isBlank()) {
+            if (email == null || email.isBlank() || email.contains("\n")) {
                 response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Unprocessable email");
                 return;
             }
 
             UserDetails userDetails;
             try {
-                userDetails = userDetailsService.loadUserByUsername(email);
+                userDetails = userDetailsService.loadUserByUsername(String.format("%s\n%s", email.trim().toLowerCase(), token));
             } catch (UsernameNotFoundException ex) {
-                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Not Found user");
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Not Found user, or Blacklisted or Expired or invalid token");
+                return;
+            }
+
+            if (userDetails == null) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Blacklisted or Expired or invalid token, or Not Found user");
                 return;
             }
 
@@ -95,7 +101,7 @@ class JwtAuthorizationFilter extends OncePerRequestFilter {
         if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer "))
             return null;
 
-        return authorizationHeader.split("")[1];
+        return authorizationHeader.split(" ")[1];
     }
 
     protected JsonWebTokenRepository getJwtRepository() {
@@ -113,9 +119,7 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final AccountRepository accountRepository;
 
     @Autowired
-    JwtAuthenticationFilter(//AuthenticationManager authenticationManager,
-                            JwtHS256Utils jwtHS256Utils, AccountRepository accountRepository) {
-        //this.authenticationManager = authenticationManager;
+    JwtAuthenticationFilter(JwtHS256Utils jwtHS256Utils, AccountRepository accountRepository) {
         this.jwtHS256Utils = jwtHS256Utils;
         this.accountRepository = accountRepository;
     }
@@ -153,11 +157,6 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             String email = accountDTO.email().trim().toLowerCase();
-            Account account = accountRepository.findByEmailAndIsEnabledAndIsNonLocked(email, true, true);
-            if (account == null) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Not found or not enabled or locked user");
-                return;
-            }
 
             UsernamePasswordAuthenticationToken authenticationToken = new UsernamePasswordAuthenticationToken(email, accountDTO.password());
             try {
@@ -169,10 +168,16 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             long expirationTime = Instant.now().getEpochSecond() + 3600 * 24 * 7;
             Map<String, String> claims = new HashMap<>();
-            claims.put("sub", account.getEmail());
+            claims.put("sub", email);
             claims.put("exp", String.valueOf(expirationTime));
 
             String token = jwtHS256Utils.generateJwt(null, claims);
+
+            Account account = accountRepository.findByEmailAndIsEnabledAndIsNonLockedWithTokens(email, true, true);
+            if (account == null) {
+                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Not found or not enabled or locked user");
+                return;
+            }
 
             JsonWebToken jsonWebToken = new JsonWebToken(token, account, expirationTime);
             account.addToken(jsonWebToken);

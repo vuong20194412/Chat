@@ -1,0 +1,7 @@
+All
+@HTTP_CURL_test:
+curl -v localhost:8100/api/user
+
+One
+@HTTP_CURL_test:
+curl -v localhost:8100/api/user/1

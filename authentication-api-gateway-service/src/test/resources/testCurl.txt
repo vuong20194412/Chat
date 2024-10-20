@@ -1,0 +1,16 @@
+Sign up
+@HTTP_CURL_test:
+curl -v -X POST localhost:8000/api/signup -H "content-type:application/json" -d "{\"password\": \"password\", \"email\": \"testemail@v.vn\", \"fullname\": \"test_fullname\"}"
+
+Sign in
+@HTTP_CURL_test:
+curl -v -X POST localhost:8000/api/signin -H "content-type:application/json" -d "{\"password\": \"password\", \"email\": \"testemail@v.vn\"}"
+
+Log out
+@HTTP_CURL_test:
+curl -v -X POST localhost:8000/api/logout -H "Authorization:Bearer <token>"
+
+All user
+@HTTP_CURL_test:
+curl -v localhost:8000/api/user
+

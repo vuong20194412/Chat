@@ -1,22 +1,21 @@
 package vuong20194412.chat.authentication_api_gateway_service;
 
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.http.*;
 import org.springframework.lang.NonNull;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.client.RestClientException;
-import org.springframework.web.client.RestTemplate;
+import org.springframework.web.client.*;
+import vuong20194412.chat.authentication_api_gateway_service.model.Account;
+import vuong20194412.chat.authentication_api_gateway_service.model.AccountDTO;
+import vuong20194412.chat.authentication_api_gateway_service.repository.AccountRepository;
 
+import java.net.InetAddress;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.util.regex.Pattern;
 
 @RestController
@@ -39,6 +38,19 @@ class AccountController {
     }
 
     /**
+     * Sign in
+     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v -X POST localhost:8000/api/signin -H "content-type:application/json"
+     * -d "{\"password\": \"password\", \"email\": \"testemail@v.vn\"}"
+    **/
+    private void signIn() {}
+
+    /**
+     * Log out
+     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v -X POST localhost:8000/api/logout -H "Authorization:Bearer &lt;token&gt;"
+     **/
+    private void logOut() {}
+
+    /**
      * New
      * @param accountDTO from body
      * @return Object
@@ -53,12 +65,9 @@ class AccountController {
 
         ResponseEntity<?> response = createUser(accountDTO);
 
-        if (response == null)
-            return response;
-
         URI location = response.getHeaders().getLocation();
 
-        if (location == null || response.getStatusCode() == HttpStatus.CREATED)
+        if (location == null || response.getStatusCode() != HttpStatus.CREATED)
             return response;
 
         String locationUrl = location.toString().trim();
@@ -71,41 +80,49 @@ class AccountController {
             return ResponseEntity.internalServerError().build();
 
         Account account = new Account();
-        account.setPassword(passwordEncoder.encode(account.getPassword().trim()));
-        account.setEmail(account.getEmail().trim());
-        account.setFullname(account.getFullname().trim());
+        account.setPassword(passwordEncoder.encode(accountDTO.password().trim()));
+        account.setEmail(accountDTO.email().trim());
+        account.setFullname(accountDTO.fullname().trim());
         account.setUserId(userId);
 
-        System.out.println(repository.save(account).getPassword());
+        repository.save(account);
 
-        return ResponseEntity.created(location).body("Sign up success");
+        URI locationUri = URI.create(locationUrl.replaceFirst("://.+/", String.format("://%s/", getDomainAddress())));
+        return ResponseEntity.created(locationUri)
+                .body(String.format("Sign up success with email %s", accountDTO.email().trim()));
     }
 
-//    @PostMapping({"/api/logout", "/api/logout/"})
-//    ResponseEntity<?> logOut(HttpServletRequest request, HttpServletResponse response) {
-//        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-//        if (authentication != null) {
-//            SecurityContextLogoutHandler logoutHandler = new SecurityContextLogoutHandler();
-//            logoutHandler.logout(request, response, authentication);
-//        }
-//        return ResponseEntity.ok().body("Log out success");
-//    }
-
     private ResponseEntity<?> createUser(@NonNull AccountDTO accountDTO) throws RestClientException {
-        //String url = String.format("%s/api/user", env.getProperty("server-domain"));
+        String url = String.format("http://%s/api/user", getDomainAddress());
+        System.out.println(url);
 
         HttpHeaders httpHeaders = new HttpHeaders();
         httpHeaders.add("X-USER-SERVICE-TOKEN", "");
         HttpEntity<?> httpEntity = new HttpEntity<>(accountDTO, httpHeaders);
 
         try {
-            ResponseEntity<Object> response = restTemplate.exchange(URI.create("http://localhost:8100/api/user"), HttpMethod.POST, httpEntity, Object.class);
-            return response;
-        } catch (Exception ex) {
-            ex.printStackTrace();
+            return restTemplate.exchange(url, HttpMethod.POST, httpEntity, Object.class);
+        } catch (RestClientResponseException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).headers(ex.getResponseHeaders()).body(ex.getResponseBodyAsString());
         }
+    }
 
-        return null;
+    private String getDomainAddress() {
+
+        boolean isDevelopmentMode = Boolean.parseBoolean(env.getProperty("development-mode"));
+
+        if (isDevelopmentMode)
+            return InetAddress.getLoopbackAddress().getHostAddress() + ":" + env.getProperty("server.port");
+
+        try {
+            if (InetAddress.getLocalHost().isLoopbackAddress())
+                return InetAddress.getLoopbackAddress().getHostAddress() + ":" + env.getProperty("server.port");
+
+            return InetAddress.getLocalHost().getHostAddress() + ":" + env.getProperty("server.port");
+
+        } catch (UnknownHostException e) {
+            throw new RuntimeException(e);
+        }
     }
 
 }

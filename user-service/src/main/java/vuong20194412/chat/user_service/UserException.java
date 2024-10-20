@@ -10,6 +10,7 @@ class UserNotFoundException extends RuntimeException {
 class UserUnprocessableEntityException extends RuntimeException {
     enum Type {
         INVALID_EMAIL,
+        EXISTED_EMAIL,
         MISSING_FIELD,
         VALUE_UNAVAILABLE,
     }

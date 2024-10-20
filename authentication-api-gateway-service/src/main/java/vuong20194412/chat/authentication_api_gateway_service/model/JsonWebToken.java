@@ -1,4 +1,4 @@
-package vuong20194412.chat.authentication_api_gateway_service;
+package vuong20194412.chat.authentication_api_gateway_service.model;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -13,7 +13,7 @@ import java.util.UUID;
 
 @Entity(name = "jwt")
 @Table(name = "jwts")
-class JsonWebToken {
+public class JsonWebToken {
 
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)

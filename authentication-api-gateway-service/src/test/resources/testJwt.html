@@ -1,0 +1,23 @@
+<label for="token-input">Token:</label>
+<input id="token-input"/>
+<button id="decode-btn">Decode</button>
+<div id="decoded-token">
+
+</div>
+<script>
+    const token_input = document.querySelector("#token-input");
+    const decode_button = document.querySelector("#decode-btn");
+    const decoded_token = document.querySelector("#decoded-token");
+
+    let header = {};
+    let payload = {};
+
+    decode_button.addEventListener("click", function(event) {
+        const parts = token_input.value.split(".");
+        console.log(atob(parts[0]));
+        console.log(atob(parts[1]));
+        header = JSON.parse(atob(parts[0]);
+        payload = JSON.parse(atob(parts[1]);
+        decoded_token.innerText = JSON.stringify(header) + JSON.stringify(payload);
+    });
+</script>

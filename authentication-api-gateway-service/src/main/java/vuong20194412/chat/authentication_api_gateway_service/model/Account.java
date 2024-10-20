@@ -1,4 +1,4 @@
-package vuong20194412.chat.authentication_api_gateway_service;
+package vuong20194412.chat.authentication_api_gateway_service.model;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
@@ -14,7 +14,7 @@ import java.util.List;
 
 @Entity(name = "account")
 @Table(name = "accounts")
-class Account {
+public class Account {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -108,9 +108,9 @@ class Account {
     }
 
     public void addToken(JsonWebToken token) {
-        if (this.tokens == null) {
+        if (this.tokens == null)
             this.tokens = new ArrayList<>();
-        }
+
         this.tokens.add(token);
     }
 
@@ -132,4 +132,3 @@ class Account {
 
 }
 
-record AccountDTO(String password, String email, String fullname){}

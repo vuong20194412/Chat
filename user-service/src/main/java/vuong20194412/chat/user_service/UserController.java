@@ -67,6 +67,9 @@ class UserController {
         user.setEmail(user.getEmail().trim());
         user.setFullname(user.getFullname().trim());
 
+        if (repository.existsByEmail(user.getEmail()))
+            throw new UserUnprocessableEntityException(UserUnprocessableEntityException.Type.EXISTED_EMAIL, "email");
+
         EntityModel<User> entityUserRecord = toModel(repository.save(user));
 
         return ResponseEntity
@@ -157,4 +160,5 @@ class UserController {
                 linkTo(methodOn(UserController.class).get(user.getId())).withSelfRel(),
                 linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
     }
+
 }
