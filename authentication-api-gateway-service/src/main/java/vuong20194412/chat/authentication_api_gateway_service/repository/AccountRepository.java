@@ -6,7 +6,9 @@ import vuong20194412.chat.authentication_api_gateway_service.model.Account;
 
 public interface AccountRepository extends JpaRepository<Account, Long> {
 
-    boolean existsByUserIdOrEmail(Long userId, String email);
+    boolean existsByEmail(String email);
+
+    boolean existsByUserId(Long userId);
 
     Account findByEmail(String email);
 

@@ -10,17 +10,12 @@ import org.springframework.security.config.annotation.authentication.builders.Au
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.authentication.logout.*;
+import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.security.web.util.matcher.RegexRequestMatcher;
-import vuong20194412.chat.authentication_api_gateway_service.model.JsonWebToken;
-
-import java.time.Instant;
 
 @Configuration
 class SecurityConfig {
@@ -41,7 +36,7 @@ class SecurityConfig {
     @Bean
     public BCryptPasswordEncoder passwordEncoder() {
         /*  set strength == 1 -> error: bad strength
-            with strength == 4 -> password form: $2a$04$1oUMLxhMZja.OxS.rrsvLOiVsTbs8XXqY1mR1M/MlalTRYEW5CgY6
+            with strength == 4 -> password form: $2a$04$1oUMLxhMZja.OxS.msvcLOiVsTbs8XXqY1mR1M/MealTRYEW5CgY6
                                                  $algorithm_version$strength$salt/hash
         */
         return new BCryptPasswordEncoder(4);
@@ -79,6 +74,7 @@ class SecurityConfig {
             .authorizeHttpRequests(auth -> {
                 auth.requestMatchers(new RegexRequestMatcher("/api/user/?", HttpMethod.POST.toString())).permitAll();
                 auth.requestMatchers(new RegexRequestMatcher("/api/signup/?", HttpMethod.POST.toString())).permitAll();
+                auth.requestMatchers(new RegexRequestMatcher("/api/signup/confirm/[a-zA-Z0-9-_]+\\.[a-zA-Z0-9-_]+\\.[a-zA-Z0-9-_]+", HttpMethod.GET.toString())).permitAll();
                 auth.requestMatchers("/api/**").authenticated();
             })
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))

@@ -1,8 +1,10 @@
 package vuong20194412.chat.user_service;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.IanaLinkRelations;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,8 +27,11 @@ class UserController {
 
     private final UserRepository repository;
 
-    UserController(UserRepository repository) {
+    private final HttpServletRequest request;
+
+    UserController(UserRepository repository, HttpServletRequest request) {
         this.repository = repository;
+        this.request = request;
     }
 
     /**
@@ -36,6 +41,9 @@ class UserController {
      */
     @GetMapping({"", "/"})
     CollectionModel<EntityModel<UserRecord>> getAll() {
+        if (request.getHeader("X-USER-SERVICE-TOKEN") == null)
+            return CollectionModel.of(List.of(), linkTo(methodOn(UserController.class).getAll()).withSelfRel());
+
         List<EntityModel<UserRecord>> entityUserRecords = repository.findUserAll()
                 .stream()
                 .map(this::toModel)
@@ -53,6 +61,9 @@ class UserController {
      */
     @PostMapping({"", "/"})
     ResponseEntity<EntityModel<User>> create(@RequestBody User user) { // be ensured user is not null // can have id in user
+        if (request.getHeader("X-USER-SERVICE-TOKEN") == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
         if (!Utils.isValidEmailAddress(user.getEmail()))
             throw new UserUnprocessableEntityException(UserUnprocessableEntityException.Type.INVALID_EMAIL, "email");
 
@@ -84,7 +95,10 @@ class UserController {
      * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v localhost:8100/api/user/1
      */
     @GetMapping({"/{id}", "/{id}/"})
-    EntityModel<UserRecord> get(@PathVariable Long id) {
+    EntityModel<?> get(@PathVariable Long id) {
+        if (!String.valueOf(id).equals(request.getHeader("X-USER-ID")) && request.getHeader("X-USER-SERVICE-TOKEN") == null)
+            return EntityModel.of(new Object(), linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
+
         UserRecord userRecord = repository.findUserById(id);
         if (userRecord == null)
             throw new UserNotFoundException(id);
@@ -102,17 +116,19 @@ class UserController {
     @PutMapping({"/{id}", "/{id}/"})
     ResponseEntity<EntityModel<User>> replace(@RequestBody User user, @PathVariable Long id) { // be ensured user is not null // can have id in user
         return repository.findById(id).map(currentUser -> {
-            if (user.getEmail() != null) {
-                user.setEmail(user.getEmail().trim());
-                if (!currentUser.getEmail().equals(user.getEmail())
-                        && Utils.isValidEmailAddress(user.getEmail())
-                        && !repository.existsByEmail(user.getEmail())) {
-                    currentUser.setEmail(user.getEmail());
+            if (String.valueOf(id).equals(request.getHeader("X-USER-ID")) && request.getHeader("X-USER-SERVICE-TOKEN") != null) {
+                if (user.getEmail() != null) {
+                    user.setEmail(user.getEmail().trim());
+                    if (!currentUser.getEmail().equals(user.getEmail())
+                            && Utils.isValidEmailAddress(user.getEmail())
+                            && !repository.existsByEmail(user.getEmail())) {
+                        currentUser.setEmail(user.getEmail());
+                    }
                 }
-            }
 
-            if (user.getFullname() != null && !user.getFullname().isBlank()) {
-                currentUser.setFullname(user.getFullname().trim());
+                if (user.getFullname() != null && !user.getFullname().isBlank()) {
+                    currentUser.setFullname(user.getFullname().trim());
+                }
             }
 
             if (user.getGender() != null && Arrays.stream(User.Gender.values()).anyMatch(gender -> gender == user.getGender())) {
@@ -134,6 +150,12 @@ class UserController {
      */
     @DeleteMapping({"/{id}", "/{id}/"})
     ResponseEntity<?> delete(@PathVariable Long id) {
+        if (!String.valueOf(id).equals(request.getHeader("X-USER-ID")))
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
+        if (request.getHeader("X-USER-SERVICE-TOKEN") == null)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+
         repository.deleteById(id);
 
         return ResponseEntity.noContent().build();

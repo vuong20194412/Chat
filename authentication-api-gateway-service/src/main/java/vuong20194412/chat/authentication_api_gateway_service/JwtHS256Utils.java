@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import javax.crypto.KeyGenerator;
 import javax.crypto.Mac;
 import javax.crypto.SecretKey;
+import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
@@ -25,12 +26,27 @@ public class JwtHS256Utils {
 
     JwtHS256Utils(@Value("${JWT_VALIDITY_PERIOD}") long jwtValidityPeriod) throws NoSuchAlgorithmException, InvalidKeyException {
         this.mac = Mac.getInstance("HmacSHA256");
-        KeyGenerator keyGenerator = KeyGenerator.getInstance("HmacSHA256");
-        //keyGenerator.init(256);
-        SecretKey secretKey = keyGenerator.generateKey();
+        Map<String, Object> setting = SettingConfig.readSetting();
+        String hs256SecretKey = (String) setting.get("base64_hs256_secret_key");
+        SecretKey secretKey;
+        if (hs256SecretKey == null) {
+            KeyGenerator keyGenerator = KeyGenerator.getInstance("HmacSHA256");
+            //keyGenerator.init(256);
+            secretKey = keyGenerator.generateKey();
+
+            setting.put("base64_hs256_secret_key", Base64.getEncoder().encodeToString(secretKey.getEncoded()));
+            SettingConfig.writeSetting(setting);
+        }
+        else {
+            secretKey = new SecretKeySpec(Base64.getDecoder().decode(hs256SecretKey), "HmacSHA256");
+        }
         System.out.println("generateSecretKey " + secretKey.getEncoded().length * 8);
         this.mac.init(secretKey);
         this.jwtValidityPeriod = jwtValidityPeriod;
+    }
+
+    public long getJwtValidityPeriod() {
+        return jwtValidityPeriod;
     }
 
     /**
@@ -38,6 +54,7 @@ public class JwtHS256Utils {
      * @param additionalHeaders Each header can not contain @code{:} and can not be null
      * @param claims iss (issuer), sub (subject), aud (audience), exp (expiration time), nbf (not before), iat (issued at), jti (jwt id), ...
      * @return token
+     * @apiNote 0 < exp - iat <= jwtValidityPeriod, now <= iat
      */
     public String generateJwt(Map<String, String> additionalHeaders, Map<String, String> claims) {
         List<String> headers = new ArrayList<>(List.of("\"alg\":\"HS256\"", "\"typ\":\"JWT\""));
