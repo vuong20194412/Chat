@@ -1,7 +1,9 @@
-package vuong20194412.chat.authentication_api_gateway_service;
+package vuong20194412.chat.authentication_api_gateway_service.util;
 
 import jakarta.validation.constraints.NotNull;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.KeyGenerator;
@@ -16,7 +18,7 @@ import java.util.*;
 import java.util.regex.Pattern;
 
 @Component
-public class JwtHS256Utils {
+public class JwtHS256Util {
 
     private final long jwtValidityPeriod;
 
@@ -24,9 +26,9 @@ public class JwtHS256Utils {
 
     private final Pattern numberPattern = Pattern.compile("^[1-9][0-9]*$");
 
-    JwtHS256Utils(@Value("${JWT_VALIDITY_PERIOD}") long jwtValidityPeriod) throws NoSuchAlgorithmException, InvalidKeyException {
+    JwtHS256Util(@Value("${JWT_VALIDITY_PERIOD}") long jwtValidityPeriod, @Autowired SettingUtil settingUtil) throws NoSuchAlgorithmException, InvalidKeyException {
         this.mac = Mac.getInstance("HmacSHA256");
-        Map<String, Object> setting = SettingConfig.readSetting();
+        Map<String, Object> setting = settingUtil.readSetting();
         String hs256SecretKey = (String) setting.get("base64_hs256_secret_key");
         SecretKey secretKey;
         if (hs256SecretKey == null) {
@@ -35,7 +37,7 @@ public class JwtHS256Utils {
             secretKey = keyGenerator.generateKey();
 
             setting.put("base64_hs256_secret_key", Base64.getEncoder().encodeToString(secretKey.getEncoded()));
-            SettingConfig.writeSetting(setting);
+            settingUtil.writeSetting(setting);
         }
         else {
             secretKey = new SecretKeySpec(Base64.getDecoder().decode(hs256SecretKey), "HmacSHA256");
@@ -45,71 +47,72 @@ public class JwtHS256Utils {
         this.jwtValidityPeriod = jwtValidityPeriod;
     }
 
-    public long getJwtValidityPeriod() {
-        return jwtValidityPeriod;
-    }
-
     /**
      * Each value can not be null, not contain @code{\"}, not contain @code{any character whose codepoint is less than or equal to 'U+0020'} in leading and trailing, not equal @code{,}
      * @param additionalHeaders Each header can not contain @code{:} and can not be null
-     * @param claims iss (issuer), sub (subject), aud (audience), exp (expiration time), nbf (not before), iat (issued at), jti (jwt id), ...
-     * @return token
+     * @param additionalClaims iss (issuer), sub (subject), aud (audience), exp (expiration time), nbf (not before), iat (issued at), jti (jwt id), ...
+     * @return {"token": {"encodedToken": encodedToken, "encodedSignature": encodedSignature}, "headers": headers (Map&lt;String,String&gt;), "claims": claims (Map&lt;String,String&gt;)}
      * @apiNote 0 < exp - iat <= jwtValidityPeriod, now <= iat
      */
-    public String generateJwt(Map<String, String> additionalHeaders, Map<String, String> claims) {
-        List<String> headers = new ArrayList<>(List.of("\"alg\":\"HS256\"", "\"typ\":\"JWT\""));
-        List<String> payloads = new ArrayList<>(List.of("\"_iss\":\"vuong20194412\""));
+    public Map<String, Map<String, String>> generateJwt(Map<String, String> additionalHeaders, Map<String, String> additionalClaims) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("alg", "HS256");
+        headers.put("typ", "JWT");
+
+        Map<String, String> claims = new HashMap<>();
+        claims.put("_iss", "vuong20194412");
 
         if (additionalHeaders != null) {
             additionalHeaders.remove("alg");
             additionalHeaders.remove("typ");
 
-            for (Map.Entry<String, String> header : additionalHeaders.entrySet()) {
-                if (isValidEntry(header.getKey(), header.getValue()))
-                    headers.add(String.format("\"%s\":\"%s\"", header.getKey(), header.getValue()));
+            for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                if (isValidEntry(key, value))
+                    headers.put(key, value);
             }
         }
 
-        if (claims != null) {
-            claims.remove("_iss");
+        if (additionalClaims != null) {
+            additionalClaims.remove("_iss");
+
+            for (Map.Entry<String, String> entry : additionalClaims.entrySet()) {
+                String key = entry.getKey();
+                String value = entry.getValue();
+                if (isValidEntry(key, value))
+                    claims.put(key, value);
+            }
 
             long now = Instant.now().getEpochSecond();
 
-            long iat;
-            String claimIat = claims.getOrDefault("iat", String.valueOf(now));
-            if (claimIat == null || !numberPattern.matcher(claimIat).matches() || Long.parseLong(claimIat) < now) {
-                claims.remove("iat");
-                iat = now;
-            }
-            else {
-                iat = Long.parseLong(claimIat);
-            }
-            payloads.add(String.format("\"iat\":\"%s\"", iat));
+            String claimIat = claims.getOrDefault("iat", "");
+            long iat = (!numberPattern.matcher(claimIat).matches() || Long.parseLong(claimIat) < now) ? now : Long.parseLong(claimIat);
+            claims.put("iat", String.valueOf(iat));
 
-            long exp;
-            String claimExp = claims.getOrDefault("exp", String.valueOf(iat + jwtValidityPeriod));
-            if (claimExp == null || !numberPattern.matcher(claimExp).matches() || Long.parseLong(claimExp) <= iat || Long.parseLong(claimExp) > iat + jwtValidityPeriod) {
-                claims.remove("exp");
-                exp = iat + jwtValidityPeriod;
-            }
-            else {
-                exp = Long.parseLong(claimExp);
-            }
-            payloads.add(String.format("\"exp\":\"%s\"", exp));
+            long maxExp = now + jwtValidityPeriod;
 
-            for (Map.Entry<String, String> claim : claims.entrySet()) {
-                if (isValidEntry(claim.getKey(), claim.getValue()))
-                    payloads.add(String.format("\"%s\":\"%s\"", claim.getKey(), claim.getValue()));
-            }
+            String claimExp = claims.getOrDefault("exp", "");
+            long exp = (!numberPattern.matcher(claimExp).matches() || Long.parseLong(claimExp) <= iat || Long.parseLong(claimExp) > maxExp) ? maxExp : Long.parseLong(claimExp);
+            claims.put("exp", String.valueOf(exp));
         }
 
-        String encodedHeader = Base64.getUrlEncoder().withoutPadding().encodeToString(String.format("{%s}", String.join(",", headers)).getBytes(StandardCharsets.UTF_8));
-        String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(String.format("{%s}", String.join(",", payloads)).getBytes(StandardCharsets.UTF_8));
+        String encodedHeader = Base64.getUrlEncoder().withoutPadding().encodeToString(mapToJsonString(headers).getBytes(StandardCharsets.UTF_8));
+        String encodedPayload = Base64.getUrlEncoder().withoutPadding().encodeToString(mapToJsonString(claims).getBytes(StandardCharsets.UTF_8));
 
         String encodedRaw = String.format("%s.%s", encodedHeader, encodedPayload);
         String signature = createSignature(encodedRaw);
 
-        return String.format("%s.%s", encodedRaw, signature);
+        String token = String.format("%s.%s", encodedRaw, signature);
+
+        return Map.of("token", Map.of("encodedToken", token, "encodedSignature", signature), "headers", headers, "claims", claims);
+    }
+
+    private String mapToJsonString(@NonNull Map<String,String> map) {
+        return "{%s}".formatted(String.join(",", map.entrySet()
+                .stream()
+                .map(entry -> String.format("\"%s\":\"%s\"", entry.getKey(), entry.getValue()))
+                .toList()));
     }
 
     /**
@@ -141,18 +144,6 @@ public class JwtHS256Utils {
             return false;
         if (!"JWT".equals(headers.get("typ")))
             return false;
-        if ("\"st".equals(headers.get("t\\\"e"))) {
-            System.out.println(1);
-        }
-        if ("\\\"st".equals(headers.get("t\\\"e"))) {
-            System.out.println(2);
-        }
-        if ("\"st".equals(headers.get("t\"e"))) {
-            System.out.println(3);
-        }
-        if ("\\\"st".equals(headers.get("t\"e"))) {
-            System.out.println(4);
-        }
 
         String[] parts = jwt.split("\\.");
 
@@ -221,4 +212,10 @@ public class JwtHS256Utils {
         return Long.parseLong(exp) < Instant.now().getEpochSecond();
     }
 
+    public boolean isNotIssued(String iat) {
+        if (!numberPattern.matcher(iat).matches())
+            return true;
+
+        return Long.parseLong(iat) >= Instant.now().getEpochSecond();
+    }
 }

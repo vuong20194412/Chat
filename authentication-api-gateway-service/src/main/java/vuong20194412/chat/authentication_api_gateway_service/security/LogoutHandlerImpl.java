@@ -4,13 +4,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.web.authentication.logout.HttpStatusReturningLogoutSuccessHandler;
 import org.springframework.security.web.authentication.logout.SecurityContextLogoutHandler;
-import vuong20194412.chat.authentication_api_gateway_service.model.JsonWebToken;
 
 import java.io.IOException;
-import java.time.Instant;
 
 class LogoutHandlerImpl extends SecurityContextLogoutHandler {
 
@@ -27,12 +24,7 @@ class LogoutHandlerImpl extends SecurityContextLogoutHandler {
         if (authentication != null) {
             String token = jwtAuthorizationFilter.extractToken(request);
             if (token != null) {
-                Long now = Instant.now().getEpochSecond();
-                JsonWebToken jsonWebToken = jwtAuthorizationFilter.getJwtRepository().findByTokenAndExpirationTimeGreaterThanEqual(token, now);
-                if (jsonWebToken != null && jsonWebToken.getAccount().getEmail().equals(((User) authentication.getPrincipal()).getUsername())) {
-                    jsonWebToken.setExpirationTime(now);
-                    jwtAuthorizationFilter.getJwtRepository().save(jsonWebToken);
-                }
+                jwtAuthorizationFilter.getJwtService().saveBlackJsonWebTokenHash(token);
             }
             super.logout(request, response, authentication);
         }
@@ -46,8 +38,7 @@ class LogoutSuccessHandlerImpl extends HttpStatusReturningLogoutSuccessHandler {
         if (authentication != null) {
             response.getWriter().write("Log out success");
             super.onLogoutSuccess(request, response, authentication);
-        }
-        else {
+        } else {
             response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
         }
     }

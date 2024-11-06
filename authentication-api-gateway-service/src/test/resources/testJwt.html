@@ -13,11 +13,13 @@
     let payload = {};
 
     decode_button.addEventListener("click", function(event) {
+        console.log(token_input.value);
         const parts = token_input.value.split(".");
+        console.log(parts);
         console.log(atob(parts[0]));
         console.log(atob(parts[1]));
-        header = JSON.parse(atob(parts[0]);
-        payload = JSON.parse(atob(parts[1]);
+        header = JSON.parse(atob(parts[0]));
+        payload = JSON.parse(atob(parts[1]));
         decoded_token.innerText = JSON.stringify(header) + JSON.stringify(payload);
     });
 </script>

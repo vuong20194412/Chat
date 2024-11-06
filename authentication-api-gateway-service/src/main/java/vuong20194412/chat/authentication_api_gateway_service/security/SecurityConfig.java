@@ -37,6 +37,10 @@ class SecurityConfig {
     public BCryptPasswordEncoder passwordEncoder() {
         /*  set strength == 1 -> error: bad strength
             with strength == 4 -> password form: $2a$04$1oUMLxhMZja.OxS.msvcLOiVsTbs8XXqY1mR1M/MealTRYEW5CgY6
+                                                 $2a$04$TZZT4QEOgTjkETDQlIwyFOCJAlCguwjuO2Ubn3OivXxgBmIJ1tkkK
+                                                 $2a$04$eJoTTsHE3t6gUi0IZbJ76..34mEghOuDNDnHaZ/YiVRysY2mMdlTe
+                                                 $2a$04$hmC4KHub/B9EcWwsoYfbMO6eU51FfZ3P414Dd7u2A4fZYSvG/jQSy
+                                                 $2a$04$.ZFElaNHdz/eTtT.jU9Ioea7YBJIHc6apg.ISeWJvrNQHFspV2HHi
                                                  $algorithm_version$strength$salt/hash
         */
         return new BCryptPasswordEncoder(4);

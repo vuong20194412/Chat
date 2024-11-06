@@ -1,4 +1,4 @@
-package vuong20194412.chat.authentication_api_gateway_service;
+package vuong20194412.chat.authentication_api_gateway_service.util;
 
 import jakarta.mail.Address;
 import jakarta.mail.Authenticator;
@@ -11,6 +11,7 @@ import jakarta.mail.internet.AddressException;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.mail.internet.MimeUtility;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 
@@ -21,18 +22,20 @@ import java.util.Properties;
 import java.util.regex.Pattern;
 
 @Component
-public class MailUtils {
+public class MailUtil {
 
     private String stmpHost;
+
     private String password;
+
     private String username;
 
-    public MailUtils() {
-        loadSetting();
+    public MailUtil(@Autowired SettingUtil settingUtil) {
+        loadSetting(settingUtil);
     }
 
-    public void loadSetting() {
-        Map<String, Object> setting = SettingConfig.readSetting();
+    public void loadSetting(@Autowired SettingUtil settingUtil) {
+        Map<String, Object> setting = settingUtil.readSetting();
         stmpHost = (String) setting.get("mail_smtp_host");
         password = (String) setting.get("mail_password");
         username = (String) setting.get("mail_username");
@@ -45,9 +48,9 @@ public class MailUtils {
         this.stmpHost = stmpHost;
     }
 
-    public void setPassword(String password) {
-        this.password = password;
-    }
+//    public void setPassword(String password) {
+//        this.password = password;
+//    }
 
     public void setUsername(String username) {
         this.username = username;
@@ -107,7 +110,7 @@ public class MailUtils {
 
             Transport.send(message);
 
-            System.out.println(String.format("send to %s OK.", recipients));
+            System.out.printf("send to %s OK.%n", recipients);
         } catch (MessagingException e) {
             throw new RuntimeException(e);
         }

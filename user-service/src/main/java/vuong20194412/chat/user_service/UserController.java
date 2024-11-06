@@ -1,10 +1,11 @@
 package vuong20194412.chat.user_service;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.hateoas.CollectionModel;
 import org.springframework.hateoas.EntityModel;
 import org.springframework.hateoas.IanaLinkRelations;
-import org.springframework.http.HttpStatus;
+import org.springframework.hateoas.Link;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,9 +15,11 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.util.UriComponents;
+import org.springframework.web.util.UriComponentsBuilder;
 
-import java.util.Arrays;
-import java.util.List;
+import java.net.URI;
 
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.linkTo;
 import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
@@ -25,138 +28,132 @@ import static org.springframework.hateoas.server.mvc.WebMvcLinkBuilder.methodOn;
 @RequestMapping("/api/user")
 class UserController {
 
-    private final UserRepository repository;
+    private final UserService service;
 
     private final HttpServletRequest request;
 
-    UserController(UserRepository repository, HttpServletRequest request) {
-        this.repository = repository;
+    @Autowired
+    UserController(UserService service, HttpServletRequest request) {
+        this.service = service;
         this.request = request;
     }
 
     /**
      * Aggregate root
-     * @return Iterable
-     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v localhost:8100/api/user
+     * @return Iterable - http code 200 if success
+     * @apiNote Remember remove spaces in path url when curl.
+     * {@code @HTTP_CURL_test:} curl -v localhost:8100/api/user
      */
     @GetMapping({"", "/"})
     CollectionModel<EntityModel<UserRecord>> getAll() {
-        if (request.getHeader("X-USER-SERVICE-TOKEN") == null)
-            return CollectionModel.of(List.of(), linkTo(methodOn(UserController.class).getAll()).withSelfRel());
-
-        List<EntityModel<UserRecord>> entityUserRecords = repository.findUserAll()
-                .stream()
-                .map(this::toModel)
-                .toList();
-
-        return CollectionModel.of(entityUserRecords,
-                linkTo(methodOn(UserController.class).getAll()).withSelfRel());
+        return CollectionModel
+                .of(
+                    service.getAllUsers().stream().map(this::toModel).toList(),
+                    linkTo(methodOn(UserController.class).getAll()).withSelfRel()
+                );
     }
 
     /**
      * New
-     * @param user from body
-     * @return Object
-     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v -X POST localhost:8100/api/user -H "content-type:application/json" -d "{\"email\": \"testemail@v.vn\", \"fullname\": \"test_fullname\", \"utcBirthday\": \"2024-10-01\", \"gender\": \"MALE\"}"
+     * @param userRecord from body
+     * @return Object - contains http code 200 if success
+     * @apiNote Remember remove spaces in path url when curl.
+     * {@code @HTTP_CURL_test:} curl -v -X POST localhost:8100/api/user -H "content-type:application/json" -H "X-USER-SERVICE-TOKEN:x" -d "{\"email\": \"testemail@v.vn\", \"fullname\": \"test_fullname\", \"utc_birthday\": \"2024-10-01\", \"gender\": \"MALE\"}"
      */
     @PostMapping({"", "/"})
-    ResponseEntity<EntityModel<User>> create(@RequestBody User user) { // be ensured user is not null // can have id in user
+    ResponseEntity<EntityModel<User>> create(@RequestBody UserRecord userRecord) { // be ensured user is not null // can have id in user
+        System.out.println(userRecord + "\n" + "X-Forwarded-Host: " + request.getHeader("X-Forwarded-Host"));
         if (request.getHeader("X-USER-SERVICE-TOKEN") == null)
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            throw new UserUnauthorizedException("Could not create new user");
 
-        if (!Utils.isValidEmailAddress(user.getEmail()))
-            throw new UserUnprocessableEntityException(UserUnprocessableEntityException.Type.INVALID_EMAIL, "email");
+        User user = service.createUser(userRecord);
 
-        if (user.getFullname() == null || user.getFullname().isBlank())
-            throw new UserUnprocessableEntityException(UserUnprocessableEntityException.Type.MISSING_FIELD, "fullname");
+        EntityModel<User> entityUser = toModel(service.saveUser(user));
 
-        if (user.getGender() != null && Arrays.stream(User.Gender.values()).noneMatch(gender -> gender == user.getGender()))
-            throw new UserUnprocessableEntityException(UserUnprocessableEntityException.Type.VALUE_UNAVAILABLE, "gender");
+        URI location;
+        String forwardedHost = request.getHeader("X-Forwarded-Host");
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        if (forwardedHost == null && forwardedProto == null)
+            location = entityUser.getRequiredLink(IanaLinkRelations.SELF).toUri();
+        else {
+            UriComponents uriComponents = getServletUriComponentsBuilder(forwardedProto, forwardedHost, request.getHeader("X-Forwarded-Port")).build();
 
-        // Can have id value in user, so need to set id null because create not update
-        user.setId(null);
-        user.setEmail(user.getEmail().trim());
-        user.setFullname(user.getFullname().trim());
-
-        if (repository.existsByEmail(user.getEmail()))
-            throw new UserUnprocessableEntityException(UserUnprocessableEntityException.Type.EXISTED_EMAIL, "email");
-
-        EntityModel<User> entityUserRecord = toModel(repository.save(user));
+            location = getServletUri(ServletUriComponentsBuilder.fromUriString(entityUser.getRequiredLink(IanaLinkRelations.SELF).getHref()), uriComponents);
+        }
 
         return ResponseEntity
-                .created(entityUserRecord.getRequiredLink(IanaLinkRelations.SELF).toUri())
-                .body(entityUserRecord);
+                .created(location)
+                .body(entityUser);
     }
 
     /**
      * One
      * @param id from path
-     * @return Object
-     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v localhost:8100/api/user/1
+     * @return Object - http code 201 if success
+     * @apiNote Remember remove spaces in path url when curl.
+     * {@code @HTTP_CURL_test:} curl -v localhost:8100/api/user/1
      */
     @GetMapping({"/{id}", "/{id}/"})
-    EntityModel<?> get(@PathVariable Long id) {
-        if (!String.valueOf(id).equals(request.getHeader("X-USER-ID")) && request.getHeader("X-USER-SERVICE-TOKEN") == null)
-            return EntityModel.of(new Object(), linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
-
-        UserRecord userRecord = repository.findUserById(id);
-        if (userRecord == null)
-            throw new UserNotFoundException(id);
-
-        return toModel(userRecord);
+    EntityModel<UserRecord> get(@PathVariable Long id) {
+        return toModel(service.getUser(id));
     }
 
     /**
      * Change
      * @param user from body
      * @param id from path
-     * @return Object
-     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v -X PUT localhost:8100/api/user/1 -H "content-type:application/json" -d "{\"email\": \"rtestemail@v.vn\", \"fullname\": \"r_test_fullname\", \"utcBirthday\": \"2024-10-02\", \"gender\": \"FEMALE\"}"
+     * @return Object - http code 200 if success
+     * @apiNote Remember remove spaces in path url when curl.
+     * {@code @HTTP_CURL_test:} curl -v -X PUT localhost:8100/api/user/1 -H "content-type:application/json" -H "X-USER-ID:1" -d "{\"email\": \"rtestemail@v.vn\", \"fullname\": \"r_test_fullname\", \"utc_birthday\": \"2024-10-02\", \"gender\": \"FEMALE\"}"
      */
     @PutMapping({"/{id}", "/{id}/"})
     ResponseEntity<EntityModel<User>> replace(@RequestBody User user, @PathVariable Long id) { // be ensured user is not null // can have id in user
-        return repository.findById(id).map(currentUser -> {
-            if (String.valueOf(id).equals(request.getHeader("X-USER-ID")) && request.getHeader("X-USER-SERVICE-TOKEN") != null) {
-                if (user.getEmail() != null) {
-                    user.setEmail(user.getEmail().trim());
-                    if (!currentUser.getEmail().equals(user.getEmail())
-                            && Utils.isValidEmailAddress(user.getEmail())
-                            && !repository.existsByEmail(user.getEmail())) {
-                        currentUser.setEmail(user.getEmail());
-                    }
-                }
+        System.out.println(user + "\n" + "X-Forwarded-Host: " + request.getHeader("X-Forwarded-Host"));
+        if (!String.valueOf(id).equals(String.valueOf(request.getHeader("X-USER-ID"))))
+            throw new UserUnauthorizedException();
 
-                if (user.getFullname() != null && !user.getFullname().isBlank()) {
-                    currentUser.setFullname(user.getFullname().trim());
-                }
-            }
+        if (request.getHeader("X-USER-SERVICE-TOKEN") == null) {
+            user.setEmail(null);
+            user.setFullname(null);
+        }
 
-            if (user.getGender() != null && Arrays.stream(User.Gender.values()).anyMatch(gender -> gender == user.getGender())) {
-                currentUser.setGender(user.getGender());
-            }
+        User currentUser = service.updateUser(id, user);
 
-            EntityModel<User> entityUser = toModel(repository.save(currentUser));
+        EntityModel<User> entityUser = toModel(service.saveUser(currentUser));
 
-            return ResponseEntity.accepted().header("Location", entityUser.getRequiredLink(IanaLinkRelations.SELF).toUri().toString()).body(entityUser);
-        })
-        .orElseThrow(() -> new UserNotFoundException(id));
+        URI location;
+        String forwardedHost = request.getHeader("X-Forwarded-Host");
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        if (forwardedHost == null && forwardedProto == null)
+            location = entityUser.getRequiredLink(IanaLinkRelations.SELF).toUri();
+        else {
+            UriComponents uriComponents = getServletUriComponentsBuilder(forwardedProto, forwardedHost, request.getHeader("X-Forwarded-Port")).build();
+
+            location = getServletUri(ServletUriComponentsBuilder.fromUriString(entityUser.getRequiredLink(IanaLinkRelations.SELF).getHref()), uriComponents);
+        }
+
+        return ResponseEntity
+                .ok()
+                .header("Location", location.toString())
+                .body(entityUser);
     }
 
     /**
      * Remove
      * @param id from path
-     * @return Object
-     * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:} curl -v -X DELETE localhost:8100/api/user/2
+     * @return Object - http code 204 if success
+     * @apiNote Remember remove spaces in path url when curl.
+     * {@code @HTTP_CURL_test:} curl -v -X DELETE localhost:8100/api/user/2 -H "X-USER-ID:2" -H "X-USER-SERVICE-TOKEN:x"
      */
     @DeleteMapping({"/{id}", "/{id}/"})
     ResponseEntity<?> delete(@PathVariable Long id) {
         if (!String.valueOf(id).equals(request.getHeader("X-USER-ID")))
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            throw new UserUnauthorizedException();
 
         if (request.getHeader("X-USER-SERVICE-TOKEN") == null)
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            throw new UserUnauthorizedException("Could not delete user");
 
-        repository.deleteById(id);
+        service.deleteUser(id);
 
         return ResponseEntity.noContent().build();
     }
@@ -167,9 +164,20 @@ class UserController {
      * @return Object
      */
     EntityModel<UserRecord> toModel(UserRecord userRecord) {
-        return EntityModel.of(userRecord,
-                linkTo(methodOn(UserController.class).get(userRecord.id())).withSelfRel(),
-                linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
+        String forwardedHost = request.getHeader("X-Forwarded-Host");
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        if (forwardedHost == null && forwardedProto == null)
+            return EntityModel.of(userRecord,
+                    linkTo(methodOn(UserController.class).get(userRecord.id())).withSelfRel(),
+                    linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
+
+        UriComponents uriComponents = getServletUriComponentsBuilder(forwardedProto, forwardedHost, request.getHeader("X-Forwarded-Port")).build();
+
+        return EntityModel.of(userRecord
+                ,Link.of(getServletUri(linkTo(methodOn(UserController.class).get(userRecord.id())).toUriComponentsBuilder(), uriComponents).toString(), "self")
+                ,Link.of(getServletUri(linkTo(methodOn(UserController.class).getAll()).toUriComponentsBuilder(), uriComponents).toString(), "user_list")
+        );
+
     }
 
     /**
@@ -178,9 +186,49 @@ class UserController {
      * @return Object
      */
     EntityModel<User> toModel(User user) {
-        return EntityModel.of(user,
-                linkTo(methodOn(UserController.class).get(user.getId())).withSelfRel(),
-                linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
+        String forwardedHost = request.getHeader("X-Forwarded-Host");
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        if (forwardedHost == null && forwardedProto == null)
+            return EntityModel.of(user,
+                    linkTo(methodOn(UserController.class).get(user.getId())).withSelfRel(),
+                    linkTo(methodOn(UserController.class).getAll()).withRel("user_list"));
+
+        UriComponents uriComponents = getServletUriComponentsBuilder(forwardedProto, forwardedHost, request.getHeader("X-Forwarded-Port")).build();
+
+        return EntityModel.of(user
+                ,Link.of(getServletUri(linkTo(methodOn(UserController.class).get(user.getId())).toUriComponentsBuilder(), uriComponents).toString(), "self")
+                ,Link.of(getServletUri(linkTo(methodOn(UserController.class).getAll()).toUriComponentsBuilder(), uriComponents).toString(), "user_list")
+        );
+
+    }
+
+    private URI getServletUri(UriComponentsBuilder  uriComponentsBuilder, UriComponents uriComponents) {
+        return uriComponentsBuilder
+                .scheme(uriComponents.getScheme())
+                .host(uriComponents.getHost())
+                .port(uriComponents.getPort())
+                .build()
+                .toUri();
+    }
+
+    private ServletUriComponentsBuilder getServletUriComponentsBuilder(String forwardedProto, String forwardedHost, String forwardedPort) {
+        ServletUriComponentsBuilder builder = ServletUriComponentsBuilder.fromCurrentContextPath();
+        try {
+            if (forwardedProto != null) {
+                builder.scheme(forwardedProto);
+            }
+            if (forwardedHost != null) {
+                builder.host(forwardedHost);
+                builder.port(forwardedPort);
+            }
+            if (forwardedPort != null) {
+                builder.port(forwardedPort);
+            }
+            return builder;
+        }
+        catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("X-Forwarded-Host ERROR");
+        }
     }
 
 }

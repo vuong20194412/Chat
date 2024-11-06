@@ -8,6 +8,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -18,12 +19,11 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import vuong20194412.chat.authentication_api_gateway_service.JwtHS256Utils;
-import vuong20194412.chat.authentication_api_gateway_service.model.Account;
-import vuong20194412.chat.authentication_api_gateway_service.model.AccountDTO;
-import vuong20194412.chat.authentication_api_gateway_service.model.JsonWebToken;
+import vuong20194412.chat.authentication_api_gateway_service.exception.JwtErrorException;
+import vuong20194412.chat.authentication_api_gateway_service.entity.Account;
+import vuong20194412.chat.authentication_api_gateway_service.dto.SignupDTO;
 import vuong20194412.chat.authentication_api_gateway_service.repository.AccountRepository;
-import vuong20194412.chat.authentication_api_gateway_service.repository.JsonWebTokenRepository;
+import vuong20194412.chat.authentication_api_gateway_service.service.JwtService;
 
 import java.io.IOException;
 import java.time.Instant;
@@ -33,45 +33,48 @@ import java.util.Map;
 @Component
 class JwtAuthorizationFilter extends OncePerRequestFilter {
 
-    private final JwtHS256Utils jwtHS256Utils;
+    private final JwtService jwtService;
 
     private final UserDetailsService userDetailsService;
 
-    private final JsonWebTokenRepository jwtRepository;
-
     @Autowired
-    JwtAuthorizationFilter(JwtHS256Utils jwtHS256Utils, UserDetailsService userDetailsService, JsonWebTokenRepository jwtRepository) {
-        this.jwtHS256Utils = jwtHS256Utils;
+    JwtAuthorizationFilter(JwtService jwtService, UserDetailsService userDetailsService) {
+        this.jwtService = jwtService;
         this.userDetailsService = userDetailsService;
-        this.jwtRepository = jwtRepository;
+    }
+
+    public JwtService getJwtService() {
+        return jwtService;
     }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
-        String token = extractToken(request);
-        if (SecurityContextHolder.getContext().getAuthentication() == null && token != null) {
-            if (!jwtHS256Utils.verifyJwt(token)) {
-                response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Expired or invalid token.");
-                return;
-            }
+        String token = SecurityContextHolder.getContext().getAuthentication() == null ? extractToken(request) : null;
 
-            Map<String, String> claims = jwtHS256Utils.extractClaims(token);
+        if (token != null) {
+            Map<String, String> claims;
 
-            if (claims.get("exp") == null || jwtHS256Utils.isExpired(claims.get("exp"))) {
+            try {
+                claims = jwtService.extractClaims(token);
+            } catch (JwtErrorException ex) {
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Expired or invalid token");
                 return;
             }
 
             String email = claims.get("sub");
-
             if (email == null || email.isBlank() || email.contains("\n")) {
                 response.sendError(HttpServletResponse.SC_BAD_REQUEST, "Unprocessable email");
                 return;
             }
 
+            if (jwtService.isBlackToken(token.split("\\.")[2], Long.parseLong(claims.get("iat")), Long.parseLong(claims.get("exp")))) {
+                response.sendError(HttpServletResponse.SC_FORBIDDEN, "Blacklisted or Expired or invalid token");
+                return;
+            }
+
             UserDetails userDetails;
             try {
-                userDetails = userDetailsService.loadUserByUsername(String.format("%s\n%s", email.trim().toLowerCase(), token));
+                userDetails = userDetailsService.loadUserByUsername(email.trim().toLowerCase());
             } catch (UsernameNotFoundException ex) {
                 response.sendError(HttpServletResponse.SC_FORBIDDEN, "Not Found user, or Blacklisted or Expired or invalid token");
                 return;
@@ -104,9 +107,6 @@ class JwtAuthorizationFilter extends OncePerRequestFilter {
         return authorizationHeader.split(" ")[1];
     }
 
-    protected JsonWebTokenRepository getJwtRepository() {
-        return jwtRepository;
-    }
 }
 
 @Component
@@ -114,13 +114,16 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private AuthenticationManager authenticationManager;
 
-    private final JwtHS256Utils jwtHS256Utils;
+    private final JwtService jwtService;
 
     private final AccountRepository accountRepository;
 
+    @Value("${JWT_VALIDITY_PERIOD}")
+    private Long jwtValidityPeriod;
+
     @Autowired
-    JwtAuthenticationFilter(JwtHS256Utils jwtHS256Utils, AccountRepository accountRepository) {
-        this.jwtHS256Utils = jwtHS256Utils;
+    JwtAuthenticationFilter(JwtService jwtService, AccountRepository accountRepository) {
+        this.jwtService = jwtService;
         this.accountRepository = accountRepository;
     }
 
@@ -135,10 +138,10 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         if (matchRequest(request)) {
-            AccountDTO accountDTO;
+            SignupDTO accountDTO;
 
             try {
-                accountDTO = new ObjectMapper().readValue(request.getInputStream(), AccountDTO.class);
+                accountDTO = new ObjectMapper().readValue(request.getInputStream(), SignupDTO.class);
             }
             catch (StreamReadException | DatabindException ex) {
                 System.out.println(ex.getMessage());
@@ -166,22 +169,26 @@ class JwtAuthenticationFilter extends OncePerRequestFilter {
                 return;
             }
 
-            long expirationTime = Instant.now().getEpochSecond() + 3600 * 24 * 7;
+            long expirationTime = Instant.now().getEpochSecond() + jwtValidityPeriod;
             Map<String, String> claims = new HashMap<>();
             claims.put("sub", email);
+            claims.put("iat", String.valueOf(Instant.now().getEpochSecond()));
             claims.put("exp", String.valueOf(expirationTime));
+            String token;
 
-            String token = jwtHS256Utils.generateJwt(null, claims);
+            try {
+                token = jwtService.generateJwt(claims);
+            } catch (JwtErrorException ex) {
+                System.out.println(ex.getMessage());
+                response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Please try again.");
+                return;
+            }
 
-            Account account = accountRepository.findByEmailAndIsEnabledAndIsNonLockedWithTokens(email, true, true);
+            Account account = accountRepository.findByEmailAndIsEnabledAndIsNonLocked(email, true, true);
             if (account == null) {
                 response.sendError(HttpServletResponse.SC_UNAUTHORIZED, "Not found or not enabled or locked user");
                 return;
             }
-
-            JsonWebToken jsonWebToken = new JsonWebToken(token, account, expirationTime);
-            account.addToken(jsonWebToken);
-            accountRepository.save(account);
 
             response.setHeader(HttpHeaders.AUTHORIZATION, "Bearer " + token);
             return;

@@ -11,7 +11,7 @@ import java.util.Date;
 class DataInitialization {
 
     @Bean
-    CommandLineRunner initializeData(UserRepository repository) {
+    CommandLineRunner initializeData(UserService service) {
         try {
             // With strategy = GenerationType.IDENTITY, increase id auto
             // With database hsqldb
@@ -34,23 +34,16 @@ class DataInitialization {
             user6.setId(0L);
 
             return args -> {
-                System.out.println(user1.toString());
-                System.out.println(user2.toString());
-                System.out.println(user3.toString());
-                System.out.println(user4.toString());
-                System.out.println(user5.toString());
-                System.out.println(user6.toString());
-                System.out.println(repository.save(user1).toString());
+                service.saveUser(user1);
                 //repository.flush();
-                System.out.println(repository.save(user2).toString());
+                service.saveUser(user2);
                 //repository.flush();
-                System.out.println(repository.save(user3).toString());
+                service.saveUser(user3);
                 //repository.flush();
-                repository.deleteById(2L);
-                System.out.println("Remove " + user2.toString());
-                System.out.println(repository.save(user4));
-                System.out.println(repository.save(user5));
-                System.out.println(repository.save(user6));
+                service.deleteUser(2L);
+                service.saveUser(user4);
+                service.saveUser(user5);
+                service.saveUser(user6);
                 // flush or not flush -> same result
             };
         } catch (Exception e) {

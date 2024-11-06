@@ -1,4 +1,4 @@
-package vuong20194412.chat.authentication_api_gateway_service.security;
+package vuong20194412.chat.authentication_api_gateway_service.service;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
@@ -7,10 +7,9 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
-import vuong20194412.chat.authentication_api_gateway_service.model.Account;
+import vuong20194412.chat.authentication_api_gateway_service.entity.Account;
 import vuong20194412.chat.authentication_api_gateway_service.repository.AccountRepository;
 
-import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -24,10 +23,10 @@ class AccountDetailsService implements UserDetailsService {
     }
 
     @Override
-    public UserDetails loadUserByUsername(@NonNull String emailAndToken) throws UsernameNotFoundException {
-        Account account = getAccount(emailAndToken);
+    public UserDetails loadUserByUsername(@NonNull String email) throws UsernameNotFoundException {
+        Account account = accountRepository.findByEmail(email);
         if (account == null)
-            return null;
+            throw new UsernameNotFoundException("Not found user for email " + email);
 
         return new User(account.getEmail(), // email instead of username
                 account.getPassword(),
@@ -35,14 +34,4 @@ class AccountDetailsService implements UserDetailsService {
                 account.isNonLocked(), List.of());
     }
 
-    private Account getAccount(@NonNull String emailAndToken) {
-        String[] parts = emailAndToken.split("\n");
-        if (parts.length == 1)
-            return accountRepository.findByEmail(parts[0]);
-
-        if (parts.length == 2)
-            return accountRepository.findByEmailAndValidToken(parts[0], parts[1], Instant.now().getEpochSecond());
-
-        return null;
-    }
 }

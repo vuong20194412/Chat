@@ -1,4 +1,4 @@
-package vuong20194412.chat.authentication_api_gateway_service;
+package vuong20194412.chat.authentication_api_gateway_service.config;
 
 import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.context.annotation.Bean;
@@ -18,4 +18,5 @@ class RestTemplateConfig {
     public RestTemplate restTemplate() {
         return new RestTemplate();
     }
+
 }
