@@ -104,10 +104,10 @@ public class Account {
 
     @Override
     public String toString() {
-        return String.format("%s:{id:%s, password:%s, email:%s, fullname:%s, userId:%s, isEnabled:%s, isNonLocked:%s, gmail:%s, facebook:%s, linkedin:%s, outlook:%s}",
+        return String.format("%s\n\tAccount[id=%s, password=%s, email=%s, fullname=%s, userId=%s, isEnabled=%s, isNonLocked=%s, gmail=%s, facebook=%s, linkedin=%s, outlook=%s]",
                 super.toString(),
                 this.id,
-                this.password != null && this.password.contains("/") ? "..." + this.password.substring(this.password.lastIndexOf("/")) : null, // use BCryptPasswordEncoder -> password has /hash
+                this.password != null ? "hidden" : null,
                 this.email,
                 this.fullname,
                 this.userId,
@@ -250,37 +250,33 @@ public class Account {
     }
 
     @PrePersist
-    private void PrePersist() {
+    private void prePersist() {
         ensureLowerCaseEmail();
         setCreatedAt();
+        System.out.println("BEFORE PERSIST: " + this);
     }
 
     @PreUpdate
-    private void PreUpdate() {
+    private void preUpdate() {
         ensureLowerCaseEmail();
         setUpdatedAt();
-        loggingChange();
+        System.out.println("BEFORE UPDATE: " + this);
     }
 
-    //@PreUpdate
     @PreRemove
-    private void loggingChange() {
-        System.out.println("Before update/remove account id: " + this.id);
+    private void preRemove() {
+        System.out.println("BEFORE DELETE: " + this);
     }
 
     @PostPersist
-    private void loggingPersist() {
-        System.out.println("Created account id: " + this.id);
-    }
-
     @PostUpdate
-    private void loggingUpdate() {
-        System.out.println("Updated account id: " + this.id);
+    private void logAfterSave() {
+        System.out.println("AFTER SAVE: " + this);
     }
 
     @PostRemove
-    private void loggingRemove() {
-        System.out.println("Removed account id: " + this.id);
+    private void logAfterDelete() {
+        System.out.println("AFTER DELETE: " + this);
     }
 
 }

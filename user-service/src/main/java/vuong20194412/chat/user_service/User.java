@@ -135,20 +135,20 @@ class User {
 
     //@PrePersist
     //@PreUpdate
-    private void ensureEmail() {
+    private void ensureLowerCaseEmail() {
         email = email.toLowerCase().trim();
     }
 
     @PrePersist
     private void prePersist() {
-        ensureEmail();
+        ensureLowerCaseEmail();
         setCreatedAt();
         System.out.println("BEFORE PERSIST: " + this);
     }
 
     @PreUpdate
     public void preUpdate() {
-        ensureEmail();
+        ensureLowerCaseEmail();
         setUpdatedAt();
         if (createdAt == null || createdAt.isAfter(updatedAt)) {
             throw new IllegalArgumentException("Updated time must be smaller than Created time. Need call update from service");

@@ -7,7 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
-import vuong20194412.chat.authentication_api_gateway_service.util.DomainAddressUtil;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import vuong20194412.chat.authentication_api_gateway_service.exception.UserErrorException;
 import vuong20194412.chat.authentication_api_gateway_service.util.MailUtil;
 import vuong20194412.chat.authentication_api_gateway_service.dto.EntityDTO;
 import vuong20194412.chat.authentication_api_gateway_service.dto.PasswordDTO;
@@ -20,7 +21,11 @@ import vuong20194412.chat.authentication_api_gateway_service.repository.Transien
 
 import java.net.URI;
 import java.time.Instant;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
 import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
@@ -37,16 +42,15 @@ public class AccountService {
 
     private final RestTemplate restTemplate;
 
-    private final String domainAddress;
-
     @Autowired
-    public AccountService(TransientPasswordRepository passwordRepository, AccountRepository repository, MailUtil mailUtils, PasswordEncoder passwordEncoder, RestTemplate restTemplate, DomainAddressUtil domainAddressConfig) {
+    public AccountService(TransientPasswordRepository passwordRepository,
+                          AccountRepository repository, MailUtil mailUtils,
+                          PasswordEncoder passwordEncoder, RestTemplate restTemplate) {
         this.passwordRepository = passwordRepository;
         this.repository = repository;
         this.mailUtils = mailUtils;
         this.passwordEncoder = passwordEncoder;
         this.restTemplate = restTemplate;
-        this.domainAddress = domainAddressConfig.getDomainAddress();
     }
 
     public AccountRepository getRepository() {
@@ -195,7 +199,8 @@ public class AccountService {
     }
 
     public ResponseEntity<EntityDTO> createUser(String email, String fullname) {
-        String url = String.format("http://%s/api/user", domainAddress);
+        ServletUriComponentsBuilder builder = ServletUriComponentsBuilder.fromCurrentContextPath().cloneBuilder();
+        String url = builder.replacePath("/api/user").toUriString();
         System.out.println(url);
 
         Map<String, String> body = new HashMap<>();
@@ -211,25 +216,12 @@ public class AccountService {
             ResponseEntity<EntityDTO> response = restTemplate.exchange(url, HttpMethod.POST, httpEntity, EntityDTO.class);
 
             if (response.getStatusCode() != HttpStatus.CREATED)
-                throw new RuntimeException(ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders()).body(response.getBody()).toString());
+                throw new UserErrorException(response.getStatusCode(), "Could not create", "code != 201", response.getHeaders());
 
             if (response.getBody() == null) {
-                URI location = response.getHeaders().getLocation();
-
-                if (location == null)
-                    throw new RuntimeException(ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders()).body(response.getBody()).toString());
-
-                String locationUrl = location.toString().trim();
-                String uid = locationUrl.substring(locationUrl.lastIndexOf("/") + 1);
-                if (!Pattern.matches("^[1-9][0-9]*$", uid))
-                    throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
-
-                Long userId = Long.parseLong(uid);
-                if (repository.existsByUserId(userId))
-                    throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
-
                 EntityDTO entityDTO = new EntityDTO();
-                entityDTO.put("id", userId);
+
+                entityDTO.put("id", getUserIdFromLocation(response.getHeaders().getLocation()));
 
                 return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders()).body(entityDTO);
             }
@@ -237,42 +229,28 @@ public class AccountService {
             Object oUserId = response.getBody().get("id");
             if (oUserId != null) {
                 Long userId = Long.parseLong(String.valueOf(oUserId));
+
                 if (repository.existsByUserId(userId))
                     throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
 
                 response.getBody().replace("id", userId);
             }
-            else {
-                URI location = response.getHeaders().getLocation();
-
-                if (location == null)
-                    throw new RuntimeException(ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders()).body(response.getBody()).toString());
-
-                String locationUrl = location.toString().trim();
-                String uid = locationUrl.substring(locationUrl.lastIndexOf("/") + 1);
-                if (!Pattern.matches("^[1-9][0-9]*$", uid))
-                    throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
-
-                Long userId = Long.parseLong(uid);
-                if (repository.existsByUserId(userId))
-                    throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
-
-                response.getBody().put("id", userId);
-            }
+            else
+                response.getBody().put("id", getUserIdFromLocation(response.getHeaders().getLocation()));
 
             return response;
 
         } catch (RestClientResponseException ex) {
-            throw new RuntimeException(ResponseEntity.status(ex.getStatusCode()).headers(ex.getResponseHeaders()).body(ex.getResponseBodyAsString()).toString());
+            throw new UserErrorException(ex.getStatusCode(), ex.getStatusText(), ex.getResponseBodyAsString(), ex.getResponseHeaders());
         }
     }
 
     public ResponseEntity<Object> updateUser(Long userId, Map<String, Object> body) throws RestClientException {
-        String url = String.format("http://%s/api/user/%s", domainAddress, userId);
+        ServletUriComponentsBuilder builder = ServletUriComponentsBuilder.fromCurrentContextPath().cloneBuilder();
+        String url = builder.replacePath(String.format("/api/user/%s", userId)).toUriString();
         System.out.println(url);
 
         HttpHeaders httpHeaders = new HttpHeaders();
-        httpHeaders.add("X-USER-ID", String.valueOf(userId));
         httpHeaders.add("X-USER-SERVICE-TOKEN", "");
         HttpEntity<?> httpEntity = new HttpEntity<>(body, httpHeaders);
 
@@ -280,22 +258,22 @@ public class AccountService {
 
             ResponseEntity<Object> response = restTemplate.exchange(url, HttpMethod.PUT, httpEntity, Object.class);
 
-            if (response.getStatusCode() != HttpStatus.ACCEPTED)
-                throw new RuntimeException(response.toString());
+            if (response.getStatusCode() != HttpStatus.OK)
+                throw new UserErrorException(response.getStatusCode(), "Could not update", "code != 200", response.getHeaders());
 
             return response;
 
         } catch (RestClientResponseException ex) {
-            throw new RuntimeException(ResponseEntity.status(ex.getStatusCode()).headers(ex.getResponseHeaders()).body(ex.getResponseBodyAsString()).toString());
+            throw new UserErrorException(ex.getStatusCode(), ex.getStatusText(), ex.getResponseBodyAsString(), ex.getResponseHeaders());
         }
     }
 
     public void deleteUser(Long userId) throws RestClientException {
-        String url = String.format("http://%s/api/user/%s", domainAddress, userId);
+        ServletUriComponentsBuilder builder = ServletUriComponentsBuilder.fromCurrentContextPath().cloneBuilder();
+        String url = builder.replacePath(String.format("/api/user/%s", userId)).toUriString();
         System.out.println(url);
 
         HttpHeaders httpHeaders = new HttpHeaders();
-        httpHeaders.add("X-USER-ID", "");
         httpHeaders.add("X-USER-SERVICE-TOKEN", "");
         HttpEntity<?> httpEntity = new HttpEntity<>(null, httpHeaders);
 
@@ -303,10 +281,10 @@ public class AccountService {
             ResponseEntity<Object> response = restTemplate.exchange(url, HttpMethod.DELETE, httpEntity, Object.class);
 
             if (response.getStatusCode() != HttpStatus.NO_CONTENT)
-                throw new RuntimeException(response.toString());
+                throw new UserErrorException(response.getStatusCode(), "Could not delete", "code != 204", response.getHeaders());
 
         } catch (RestClientResponseException ex) {
-            throw new RuntimeException(ResponseEntity.status(ex.getStatusCode()).headers(ex.getResponseHeaders()).body(ex.getResponseBodyAsString()).toString());
+            throw new UserErrorException(ex.getStatusCode(), ex.getStatusText(), ex.getResponseBodyAsString(), ex.getResponseHeaders());
         }
     }
 
@@ -330,4 +308,21 @@ public class AccountService {
             };
         }).toList());
     }
+
+    private Long getUserIdFromLocation(URI location) {
+        if (location == null)
+            throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
+
+        String locationUrl = location.toString().trim();
+        String uid = locationUrl.substring(locationUrl.lastIndexOf("/") + 1);
+        if (!Pattern.matches("^[1-9][0-9]*$", uid))
+            throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
+
+        Long userId = Long.parseLong(uid);
+        if (repository.existsByUserId(userId))
+            throw new RuntimeException(ResponseEntity.internalServerError().build().toString());
+
+        return userId;
+    }
+
 }

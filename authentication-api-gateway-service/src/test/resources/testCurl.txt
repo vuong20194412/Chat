@@ -12,5 +12,29 @@ curl -v -X POST localhost:8000/api/logout -H "Authorization:Bearer <token>"
 
 All user
 @HTTP_CURL_test:
-curl -v localhost:8000/api/user
+curl -v localhost:8000/api/user -H  "Authorization:Bearer <token>"
+
+One
+@HTTP_CURL_test:
+curl -v localhost:8000/api/user/1 -H  "Authorization:Bearer <token>"
+
+Create not from signup (without X-USER-SERVICE-TOKEN)
+@HTTP_CURL_test:
+curl -v -X POST localhost:8000/api/user -H "content-type:application/json" -d "{\"email\": \"testemail@v.vn\", \"fullname\": \"test_fullname\", \"utc_birthday\": \"2024-10-01\", \"gender\": \"MALE\"}" -H  "Authorization:Bearer <token>"
+
+Update different user (not same X-USER-ID)
+@HTTP_CURL_test:
+curl -v -X PUT localhost:8000/api/user/1 -H "content-type:application/json" -d "{\"email\": \"rtestemail@v.vn\", \"fullname\": \"r_test_fullname\", \"utc_birthday\": \"2024-10-02\", \"gender\": \"FEMALE\"}" -H  "Authorization:Bearer <token>"
+
+Update with can not update email and fullname
+@HTTP_CURL_test:
+curl -v -X PUT localhost:8000/api/user/<user-id of account> -H "content-type:application/json" -H -d "{\"email\": \"rtestemail@v.vn\", \"fullname\": \"r_test_fullname\", \"utc_birthday\": \"2024-10-02\", \"gender\": \"FEMALE\"}" -H  "Authorization:Bearer <token>"
+
+Delete different user (not same X-USER-ID)
+HTTP_CURL_test:
+curl -v -X DELETE localhost:8000/api/user/2  -H "X-USER-SERVICE-TOKEN:x" -H  "Authorization:Bearer <token>"
+
+Delete not from remove account (without X-USER-SERVICE-TOKEN)
+HTTP_CURL_test:
+curl -v -X DELETE localhost:8000/api/user/<user-id of account> -H  "Authorization:Bearer <token>"
 

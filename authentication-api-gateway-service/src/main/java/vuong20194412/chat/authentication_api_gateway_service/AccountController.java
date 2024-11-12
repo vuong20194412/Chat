@@ -1,19 +1,15 @@
 package vuong20194412.chat.authentication_api_gateway_service;
 
 import jakarta.mail.internet.AddressException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.User;
-import org.springframework.web.bind.annotation.DeleteMapping;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import vuong20194412.chat.authentication_api_gateway_service.dto.EntityDTO;
 import vuong20194412.chat.authentication_api_gateway_service.dto.PasswordDTO;
 import vuong20194412.chat.authentication_api_gateway_service.dto.SignupDTO;
@@ -22,7 +18,6 @@ import vuong20194412.chat.authentication_api_gateway_service.exception.AccountUn
 import vuong20194412.chat.authentication_api_gateway_service.entity.Account;
 import vuong20194412.chat.authentication_api_gateway_service.service.AccountService;
 import vuong20194412.chat.authentication_api_gateway_service.service.JwtService;
-import vuong20194412.chat.authentication_api_gateway_service.util.DomainAddressUtil;
 import vuong20194412.chat.authentication_api_gateway_service.util.MailUtil;
 
 import java.time.Instant;
@@ -34,6 +29,7 @@ import java.util.Objects;
 import java.util.regex.Pattern;
 
 @RestController
+@RequestMapping("/api")
 class AccountController {
 
     private final AccountService service;
@@ -45,14 +41,14 @@ class AccountController {
     @Value("${JWT_VALIDITY_PERIOD}")
     private Long jwtValidityPeriod;
 
-    private final String domainAddress;
+    private final HttpServletRequest request;
 
     @Autowired
-    public AccountController(AccountService service, JwtService jwtService, MailUtil mailUtils, DomainAddressUtil domainAddressConfig) {
+    public AccountController(AccountService service, JwtService jwtService, MailUtil mailUtils, HttpServletRequest request) {
         this.service = service;
         this.jwtService = jwtService;
         this.mailUtils = mailUtils;
-        this.domainAddress = domainAddressConfig.getDomainAddress();
+        this.request = request;
     }
 
     /**
@@ -83,7 +79,7 @@ class AccountController {
      * curl -v -X POST localhost:8000/api/signup -H "content-type:application/json"
      * -d "{\"password\": \"password\", \"email\": \"testemail@v.vn\", \"fullname\": \"test_fullname\"}"
      */
-    @PostMapping({"/api/signup", "/api/signup/"})
+    @PostMapping({"/signup", "/signup/"})
     ResponseEntity<?> signUp(@RequestBody SignupDTO signupDTO) {
         Account.AccountRecord accountRecord = service.prepareBeforeCreateAccount(signupDTO.password(), signupDTO.email(), signupDTO.fullname());
 
@@ -106,7 +102,7 @@ class AccountController {
      * @apiNote Remember remove spaces in path url when curl. {@code @HTTP_CURL_test:}
      * curl -v localhost:8000/api/signup/confirm/&lt;token&gt;
      */
-    @GetMapping("/api/signup/confirm/{token}")
+    @GetMapping("/signup/confirm/{token}")
     ResponseEntity<?> ConfirmSignUp(@PathVariable String token) {
         Map<String, String> claims = jwtService.extractClaims(token);
 
@@ -125,15 +121,18 @@ class AccountController {
         account.setUserId(userId);
         service.saveAccount(account);
 
-        return ResponseEntity.status(response.getStatusCode()).headers(response.getHeaders())
-                .body(String.format("{\"title\": \"Sign up success\", %s", response.getBody()));
+        return ResponseEntity
+                .status(response.getStatusCode())
+                .headers(response.getHeaders())
+                .body(String.format("{\"title\": \"Sign up success\", \"user\": %s \"account\": %s",
+                        response.getBody(), ResponseEntity.ok(account).getBody()));
     }
 
     /* END SIGN UP ACCOUNT */
 
     /* PART CHANGE EMAIL */
 
-    @PutMapping({"/api/account/change-email"})
+    @PutMapping({"/account/change-email", "/account/change-email/"})
     ResponseEntity<?> changeEmail(@RequestBody Map<String, String> newEmail) {
         User user = (User) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
@@ -149,7 +148,7 @@ class AccountController {
         return ResponseEntity.ok(String.format("Go to email %s to confirm", email));
     }
 
-    @GetMapping("/api/account/change-email/confirm/now/{token}")
+    @GetMapping("/account/change-email/confirm/now/{token}")
     ResponseEntity<?> confirmChangeEmailFromCurrentEmail(@PathVariable String token) {
         Map<String, String> _claims = jwtService.extractClaims(token);
 
@@ -169,7 +168,7 @@ class AccountController {
         return ResponseEntity.ok(String.format("Go to email %s to confirm", newEmail));
     }
 
-    @GetMapping("/api/account/change-email/confirm/new/{token}")
+    @GetMapping("/account/change-email/confirm/new/{token}")
     ResponseEntity<?> confirmChangeEmail(@PathVariable String token) {
         Map<String, String> claims = jwtService.extractClaims(token);
 
@@ -206,7 +205,7 @@ class AccountController {
 
     /* PART CHANGE PASSWORD */
 
-    @PutMapping({"/api/account/change-password", "/api/account/change-password/"})
+    @PutMapping({"/account/change-password", "/account/change-password/"})
     ResponseEntity<?> changePassword(@RequestBody PasswordDTO passwordDTO) {
         PasswordDTO _passwords = service.prepareBeforeChangePassword(passwordDTO);
 
@@ -230,7 +229,7 @@ class AccountController {
         return ResponseEntity.ok(String.format("Go to email %s to confirm", email));
     }
 
-    @GetMapping("/api/account/change-password/confirm/{token}")
+    @GetMapping("/account/change-password/confirm/{token}")
     ResponseEntity<?> confirmChangePassword(@PathVariable String token) {
         Map<String, String> claims = jwtService.extractClaims(token);
 
@@ -253,7 +252,7 @@ class AccountController {
 
     /* PART RESET PASSWORD */
 
-    @PostMapping({"/api/account/reset-password", "/api/account/forget-password/"})
+    @PostMapping({"/account/reset-password", "/account/forget-password/"})
     ResponseEntity<?> resetPassword(@RequestBody Map<String, String> body) {
         String email = body.get("email") != null ? body.get("email").trim().toLowerCase() : "";
         if (email.isBlank())
@@ -269,7 +268,7 @@ class AccountController {
         return ResponseEntity.ok(String.format("Go to email %s to confirm if registered by this email", email));
     }
 
-    @GetMapping("/api/account/reset-password/confirm/{token}")
+    @GetMapping("/account/reset-password/confirm/{token}")
     ResponseEntity<?> createNewPassword(@PathVariable String token) {
         Map<String, String> claims = jwtService.extractClaims(token);
 
@@ -294,7 +293,7 @@ class AccountController {
 
     /* PART DELETE ACCOUNT */
 
-    @DeleteMapping({"/api/account/remove", "/api/account/remove/"})
+    @DeleteMapping({"/account/remove", "/account/remove/"})
     ResponseEntity<?> delete() {
         User user = (User) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
 
@@ -307,7 +306,7 @@ class AccountController {
         return ResponseEntity.ok(String.format("Go to email %s to confirm", email));
     }
 
-    @GetMapping("/api/account/remove/confirm/{token}")
+    @GetMapping("/account/remove/confirm/{token}")
     ResponseEntity<?> confirmDelete(@PathVariable String token) {
         Map<String, String> claims = jwtService.extractClaims(token);
 
@@ -348,34 +347,86 @@ class AccountController {
         String emailSubject;
         String content;
 
+        String forwardedHost = request.getHeader("X-Forwarded-Host");
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        String forwardedPort = request.getHeader("X-Forwarded-Port");
+
+        ServletUriComponentsBuilder builder = ServletUriComponentsBuilder.fromCurrentContextPath().cloneBuilder();
+        if (forwardedProto != null) {
+            String lastForwardProtos = forwardedProto.split(",")[0].trim();
+            if (lastForwardProtos.equals("https") || lastForwardProtos.equals("http"))
+                builder.scheme(lastForwardProtos);
+        }
+
+        if (forwardedHost != null) {
+            String lastForwardedHost = forwardedHost.split(",")[0].trim();
+            if (Pattern.matches("^.+:\\d+$", lastForwardedHost)) {
+                int colonIndex = lastForwardedHost.indexOf(":");
+                builder.host(lastForwardedHost.substring(0, colonIndex));
+                int port = Integer.parseInt(lastForwardedHost.substring(colonIndex + 1));
+                if (port <= 65535)
+                    builder.port(port);
+                else
+                    builder.port(null);
+            }
+            else {
+                builder.host(lastForwardedHost);
+                if (forwardedPort != null) {
+                    String lastForwardedPort = forwardedPort.split(",")[0].trim();
+                    if (Pattern.matches("^\\d+$", lastForwardedPort)) {
+                        int port = Integer.parseInt(lastForwardedPort);
+                        if (port <= 65535)
+                            builder.port(port);
+                        else
+                            builder.port(null);
+                    }
+                    else
+                        builder.port(null);
+                } else {
+                    builder.port(null);
+                }
+            }
+        }
+        else if (forwardedPort != null) {
+            String[] forwardedPorts = forwardedPort.split(",");
+            String lastForwardedPort = forwardedPorts[forwardedPorts.length - 1].trim();
+            if (Pattern.matches("^\\d+$", lastForwardedPort)) {
+                int port = Integer.parseInt(lastForwardedPort);
+                if (port <= 65535)
+                    builder.port(port);
+                else
+                    builder.port(null);
+            }
+        }
+
         if (action == ConfirmAction.SIGN_UP) {
             emailSubject = "Sign up - V";
-            String link = String.format("http://%s/api/signup/confirm/%s", domainAddress, token);
+            String link = builder.replacePath(String.format("/api/signup/confirm/%s", token)).toUriString();
             content =  getContent(link, expirationTime, "Sign up");
         }
         else if (action == ConfirmAction.CHANGE_PASSWORD) {
             emailSubject = "Change password - V";
-            String link = String.format("http://%s/api/account/change-password/confirm/%s", domainAddress, token);
+            String link = builder.replacePath(String.format("/api/account/change-password/confirm/%s", token)).toUriString();
             content =  getContent(link, expirationTime, "Change password");
         }
         else if (action == ConfirmAction.RESET_PASSWORD) {
             emailSubject = "Reset password - V";
-            String link = String.format("http://%s/api/account/reset-password/confirm/%s", domainAddress, token);
+            String link = builder.replacePath(String.format("/api/account/reset-password/confirm/%s", token)).toUriString();
             content =  getContent(link, expirationTime, "Reset password");
         }
         else if (action == ConfirmAction.CHANGE_EMAIL_FROM_CURRENT_EMAIL) {
             emailSubject = "Change email - V";
-            String link = String.format("http://%s/api/account/change-email/confirm/now/%s", domainAddress, token);
+            String link = builder.replacePath(String.format("/api/account/change-email/confirm/now/%s", token)).toUriString();
             content =  getContent(link, expirationTime, "Change email");
         }
         else if (action == ConfirmAction.CHANGE_EMAIL_FROM_NEW_EMAIL) {
             emailSubject = "Change email - V";
-            String link = String.format("http://%s/api/account/change-email/confirm/new/%s", domainAddress, token);
+            String link = builder.replacePath(String.format("/api/account/change-email/confirm/new/%s", token)).toUriString();
             content =  getContent(link, expirationTime, "Change email");
         }
         else if (action == ConfirmAction.DELETE_ACCOUNT) {
             emailSubject = "Remove account - V";
-            String link = String.format("http://%s/api/account/remove/confirm/%s", domainAddress, token);
+            String link = builder.replacePath(String.format("/api/account/remove/confirm/%s", token)).toUriString();
             content =  getContent(link, expirationTime, "Remove account");
         }
         else {
@@ -394,7 +445,6 @@ class AccountController {
         String toClick = String.format("<a href=\"%s\">%s</a>", link, confirmAction);
         String toCopy = String.format("If link above does not appear, please copy and paste this link into your browser's address bar: %s", link);
         return "<p>Hi</p>" +
-                "<br>" +
                 "<p>We got a request to perform an action that requires your confirmation.<p>" +
                 "<p>" + toAsk + "</p>" +
                 toClick +
